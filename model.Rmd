@@ -1,0 +1,271 @@
+---
+title: "高雄社宅Go"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+#rm(list=ls(all=TRUE))
+knitr::opts_chunk$set(echo = TRUE)
+setwd("~/ShinyApps")
+
+library(shinyWidgets); chooseSliderSkin("Modern")
+library("dplyr")
+library("leaflet.minicharts")
+library("leaflet")
+library("shiny")
+library("shinydashboard")
+library("ggmap")
+library("mapproj")
+library("data.table")
+library("jsonlite")
+library("ggmap")
+library("htmltools")
+library("rgdal")
+library("geosphere")
+library("readxl")
+```
+
+```{r}
+#代入資料集座標
+Public_Facility <- fread("Public_Facility.csv", encoding = "UTF-8")
+#輕軌
+KTRC_locate <- fread("KRTC_locate.csv")
+#就業中心
+Trainning_Center_locate <- read.csv("Trainning_Center_locate.csv", encoding = "UTF-8-BOM")
+#捷運
+MRT_locate <- fread("MRT_locate.csv")
+#傳統市場
+Traditional_Market_locate <- fread("Traditional_Market_locate.csv")
+#運動中心
+SportCenter <- data.frame(long = c(120.353637626466, 120.3349525003128, 120.28719894364973), lat = c (22.62135049890336, 22.628027995848644, 22.69206738345942), Name = c("鳳山", "技擊館", "左營"))
+#公園
+Park <- fread("Park_locate.csv")
+#AED
+AED <- fread("AED_locate.csv")
+#便利商店
+Convenient_Store <- read.csv("Convenient_Store_locate.csv", encoding = "UTF-8-BOM")
+#消防局
+Fire_Station <- read.csv("Fire_Station_locate.csv", encoding = "UTF-8")
+#警察局
+Police_Station_locate <- fread("Police_Station_locate.csv")
+#長照族群
+Old_Care_locate<- fread("old_care_locate.csv")
+#精神機構
+mentalhealth <- fread("mentalhealth_locate.csv")
+#幼稚園
+Kindergarten <- fread("Kindergarten_locate.csv")
+#國小
+Elementery_School_locate <- fread("Elementery_School_locate.csv")
+#國中
+JuniorHigh_locate <- fread("JuniorHigh_locate.csv")
+#高中
+HighSchool_locate <- fread("HighSchool_locate.csv")
+# 停車場
+parkinglot_locate <- fread("Parkinglot_locate.csv")
+#加水站
+Water_Spot <- read.csv("water_spot_locate.csv", encoding = "UTF-8")
+# 鄰避效應
+# 汙水處理廠
+sewage <- fread("高雄汙水處理廠.csv")
+names(sewage)[1] <- "long"
+names(sewage)[2] <- "lat"
+# 垃圾焚化廠
+waste <- fread("高雄垃圾焚化場.csv")
+waste <- waste[,3:4]
+# 發電廠
+electricity <- fread("高雄發電廠.csv")
+# 變電所
+trans <- read_excel("高雄市變電所.xlsx")
+# 殯葬業
+funeral <- read_excel("殯葬業.xlsx")
+#新增社會住宅圖示
+HouseIcon <- makeIcon(
+  iconUrl = "house.png",
+  iconWidth = 20, iconHeight = 50,
+  iconAnchorX = 22, iconAnchorY = 94,
+)
+```
+
+```{r}
+# 公共設施(勾選清單那邊使用)
+fac <- data.frame(Num = c(1, 2, 3, 4),fac = c("捷運","育幼院","就業中心","運動中心"))
+
+label <- data.frame(num = c(1,2,3),item = c("就業中心","捷運","傳統市場"))
+
+#創建社會住宅合適比例
+ratio <- data.frame('Young' = c(10, 12, 23, 24, 35, 36, 27, 28, 19, 10 ,11 ,12, 13), "Low_Income" = c(20, 29, 28, 17, 36, 15, 24, 23, 12, 11, 10, 29, 28), "Disability" = c(70, 59, 49, 59, 29, 79 ,49 ,49 , 59, 79 ,79 ,59 ,59))
+
+#社會住宅經緯度
+place <- data.frame(lon = c(120.2832, 120.32567, 120.34454, 120.31687, 120.28953, 120.31566, 120.36655, 120.36461, 120.37746, 120.28721, 120.28755, 120.3919370, 120.30288), lat = c(22.68126, 22.74352, 22.70630, 22.68914, 22.64557, 22.66121, 22.64443, 22.64267, 22.62144, 22.63215, 22.78322, 22.6224305, 22.60682))
+
+## ui.R ##
+ui <- dashboardPage(
+  dashboardHeader
+  (
+    title = "高雄社宅GO",
+    dropdownMenu
+    (
+      type = "messages",
+      messageItem
+      (
+    from = "New User",
+    message = "How do I register?",
+    icon = icon("question"),
+    time = Sys.Date()
+      ),
+      messageItem
+      (
+      from = "Support",
+      message = "The new server is ready.",
+      icon = icon("life-ring"),
+      time = Sys.Date()
+      )
+    ),
+    dropdownMenu
+      (
+      type = "notifications",
+      notificationItem
+      (
+        text = "5 new users today",
+        icon("users")
+        )
+      ),
+    dropdownMenu
+      (
+      type = "tasks",badgeStatus = "success",
+      taskItem(value = 90,color = "green","Documentation")
+      )
+    ),
+  dashboardSidebar
+  (
+    sidebarMenu
+    (
+      menuItem("Dashboard", tabName = "dashboard",icon = icon("dashboard")),
+      # 公共設施
+      checkboxGroupInput("public_U",
+                          label="請選擇想查看的公共設施",
+                          choices=list("捷運站"=1,"輕軌"=2,"AED"=3,"便利商店"=4,"國小"=5,"消防局"=6, "高中"                           = 7, "國中" = 8, "幼稚園" = 9, "精神機構" = 10, "長照機構" = 11, "公園" = 12,                               "停車場" = 13, "警察局" = 14, "傳統市場" = 15, "訓練中心" = 16),
+                          selected=c(1,2)), 
+      # 交通
+      sliderInput("s1", "您平常會通勤上班嗎？", 1, 10, 7, step = 1),
+      # 飲食
+      sliderInput("s2", "您熱愛品嘗美食嗎？",1 ,10, 8, step = 1),
+      # 運動
+      sliderInput("s3", "您常運動嗎？",1 ,10, 3, step = 1),
+      # 教育
+      sliderInput("s4", "您目前對於工作的需求程度？",1 ,10, 5, step = 1),
+      # 安全
+      sliderInput("s5", "您對安全的重視程度？",1 ,10, 10, step = 1),
+      # 醫療
+      sliderInput("s6", "您對於醫療的重視程度？",1 ,10, 1, step = 1),
+      # 鄰避效應
+      sliderInput("s7", "若住宅附近有鄰避設施，您的排斥程度為？(像是垃圾場、殯葬業、發電廠、變電所等等)",1 ,10, 1, step = 1),
+      # 送出按鈕(新增)
+      submitButton(text = "送出",icon("paper-plane-top")),
+      # 改名為小工具，可能未來的延伸，目前就讓介面不要那麼單調
+      menuItem("小工具",tabName = "widgets",icon = icon("th"))
+    )
+  ),
+  dashboardBody
+  (
+    tabItems
+    (
+      # First tab content
+      tabItem
+      (
+        tabName = "dashboard",
+        fluidRow
+        (
+          #添加地圖
+          (leafletOutput("mymap",width = "100%", height = 550)), #原本550
+          titlePanel("效用分數"),
+          mainPanel
+          (
+              tableOutput("Point"), # 在主頁面添加效用函數表格
+              tags$a(href="https://sh.hurc.org.tw/E/E-811-001", "點我以取得更多社宅詳細資訊"),
+              #tags$img(src="social.jpg",type = "image/ipg", width = "50%", height = "50%"))
+          )
+        )
+      )
+    )
+  )
+)
+```
+
+
+```{r}
+## app.R ##
+
+server <- function(input, output) {
+    tilesURL <- "http://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"  
+  output$mymap <- renderLeaflet({
+    #畫高雄地圖
+    for (i in 1:nrow(place)) 
+      {
+      score[i] <-input$s1*Utility_Score[i, 1] +input$s2*Utility_Score[i, 2]+input$s3*Utility_Score[i, 3] +input$s4*Utility_Score[i, 4] + input$s5*Utility_Score[i, 5] + input$s6*Utility_Score[i, 6] -30*input$s7*Utility_Score[i, 7]
+        }
+      Public_Facility %>%
+        filter(Num %in% input$public_U)->subset.data
+        subset.data %>%
+          group_by(Num) 
+        
+      df <- data.frame(type = factor(
+          ifelse((subset.data$Num) == 1, 1, subset.data$Num),
+          c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ,11, 12, 13, 14, 15, 16)
+      ))
+      pal <- colorFactor(c("#a0d9e8", "#009999", "#fcba50", "#ffd8be", "#b385a7", "#b38585", "#251111",                                "#112511", "#77d477", "#bee3ff", "#859fb3", "#05518b", "#042035", "#c9e7ff",                                "#7e7e7e", "Navy"), domain = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ,11, 12, 13, 14, 15, 16))
+  #    pal1 <- colorFactor(c("#a0d9e8", "#009999", "#fcba50", "#ffd8be", "#b385a7", "#b38585", "#251111",                                 "#112511", "#77d477", "#bee3ff", "#859fb3", "#05518b", "#042035", "#c9e7ff",                                 "#7e7e7e", "Navy"), domain = subset.data$Facility)
+      Public_Facility$Facility <- as.factor(Public_Facility$Facility)
+      levels(Public_Facility$Facility)
+      
+      leaflet(df) %>% addTiles(tilesURL 
+      ) %>% addMarkers(
+        place$lon, place$lat, 
+        popup = (htmlEscape(score)),
+        #clusterOptions = markerClusterOptions()
+      ) %>%
+      addCircleMarkers(                               #顯示公共設施地點                                  
+      subset.data$Long, subset.data$Lat,                                    
+      popup = htmlEscape(subset.data$Name),
+      color = ~pal(type),
+      clusterOptions = markerClusterOptions(),
+      stroke = FALSE, fillOpacity = 0.5
+      )#%>%
+  #    addLegend("bottomright",                         #顯示公共設施名字
+  #    pal = pal1,
+#      values = ~subset.data$Facility,
+ #      values = c("捷運站","輕軌","AED","便利商店","國小","消防局", "高中" , "國中", "幼稚園", "精神機構", "長照機構", "公園", "停車場" , "警察局", "傳統市場", "訓練中心"),
+ #     title = "Public Facility",
+  #    opacity = 1)                                          
+    
+  })
+
+  
+  output$Point <- renderTable({
+    Utility_Score %>%
+      # 新增社會住宅名字、地址、戶數、類別欄位
+      mutate(`名字` = c("崇實安居","清豐安居","仁武安居","福山安居","美都安居","明仁好室","鳯誠安居","鳳松安居","鳳翔安居","七賢安居","岡山社宅","大寮社宅","亞灣社宅"),`地址` = c("左營區介壽路與先鋒路交叉口","楠梓區清豐5路口","仁武區水管路與水管路435巷交界處(仁武公園對面)","左營區華夏路1550號","三民區德利街與德旺街交叉口","三民區民族一路503巷與民族一路交叉口","鳳山區鳳誠路與鳳誠路112巷交叉口","鳳山區鳳松路與鳳松路394巷交叉口","鳳山區 鳳翔1街","前金區河南二路196號","岡山區東：以機一-九用地西側為界。西：以仁壽南路東側(含2.5米道路)為界。南：以國軒路北側為界。北：以介壽路道路中心線及公五用地北側為界。","大寮區大寮捷運站二號出口外","前鎮區復興三路、啟聖街與修成南街之基地"),`戶數` = c("859","1,590","340","220","325","139","320","411","440","600","764","450","1,600"),`類別` = c("中央","中央","中央","中央","中央","中央","中央","中央","中央","中央","市府","市府","市府"),`附屬設施` = c("日照中心、店鋪","公共空間(待規劃)","公共空間(待規劃)","公共空間(待規劃)","幼兒園、日照中心","托嬰中心、日照中心、店鋪","日照中心","幼兒園、日照中心","托嬰中心","規劃中","日照中心、社區關懷據點、身障服務據點、幼兒園及社區健身中心","捷運站、產業園區(緊鄰)","托嬰中心、幼兒園、日照中心、社區全齡運動中心"),`竣工日期` = c("114年3月9日","115年12月7日","114年8月31日","114年8月31日","114年4月13日","114年2月28日","114年1月14日","114年1月14日","115年5月25日","規劃中","114年12月","114年12月","115年2月~6月間")) %>%
+      # 新增加權分數欄位
+      mutate(Score = input$s1*Traffic +input$s2* Food+input$s3*Sport +input$s4*Education + input$s5*Security + input$s6*Medical - 30*input$s7*NIMBY) %>%
+      # 選取我們想顯示給客群的欄位
+      select(`名字`,`地址`,`戶數`,`類別`,`附屬設施`,`竣工日期`,Score) %>%
+      # 由大到小排列欄位
+      arrange(desc(Score)) %>%
+      # 只顯示前三項
+      head(3)
+    })
+    # 顯示各社會住宅的效用分數
+}
+shinyApp(ui=ui,server=server)  
+```
+
+```{r}
+
+```
+
+
+
+
+
+
